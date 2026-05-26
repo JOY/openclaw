@@ -429,6 +429,30 @@ function buildEventMessage(data: Record<string, unknown>): ZaloEventMessage | un
   };
 }
 
+/** Map a cached inbound quote entry into the zca-js SendMessageQuote shape. */
+function buildSendMessageQuote(
+  quote: ZaloSendOptions["quote"],
+): Record<string, unknown> | undefined {
+  if (!quote) {
+    return undefined;
+  }
+  const msgId = toStringValue(quote.msgId);
+  const cliMsgId = toStringValue(quote.cliMsgId);
+  const uidFrom = toStringValue(quote.uidFrom);
+  if (!msgId || !cliMsgId || !uidFrom) {
+    return undefined;
+  }
+  return {
+    content: quote.content,
+    msgType: quote.msgType || "webchat",
+    uidFrom,
+    msgId,
+    cliMsgId,
+    ts: quote.ts,
+    ...(quote.ttl !== undefined ? { ttl: quote.ttl } : {}),
+  };
+}
+
 function extractSendMessageId(result: unknown): string | undefined {
   if (!result || typeof result !== "object") {
     return undefined;
@@ -1269,11 +1293,19 @@ export async function sendZaloTextMessage(
 
         const payloadText = text.slice(0, 2000);
         const textStyles = clampTextStyles(payloadText, options.textStyles);
-        const response = await api.sendMessage(
-          textStyles ? { msg: payloadText, styles: textStyles } : payloadText,
-          trimmedThreadId,
-          type,
-        );
+        const quote = buildSendMessageQuote(options.quote);
+        const response =
+          textStyles || quote
+            ? await api.sendMessage(
+                {
+                  msg: payloadText,
+                  ...(textStyles ? { styles: textStyles } : {}),
+                  ...(quote ? { quote } : {}),
+                },
+                trimmedThreadId,
+                type,
+              )
+            : await api.sendMessage(payloadText, trimmedThreadId, type);
         const messageId = extractSendMessageId(response);
         return {
           ok: true,

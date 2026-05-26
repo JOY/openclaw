@@ -51,6 +51,8 @@ export async function sendMessageZalouser(
             caption: undefined,
             mediaLocalRoots: undefined,
             mediaUrl: undefined,
+            // Only the first chunk quotes the original message.
+            quote: undefined,
             textStyles: chunk.styles,
           };
     const result = await sendZaloTextMessage(threadId, chunk.text, chunkOptions);

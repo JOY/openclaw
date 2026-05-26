@@ -33,6 +33,7 @@ import {
 import { buildZalouserGroupCandidates, findZalouserGroupEntry } from "./group-policy.js";
 import { resolveZalouserReactionMessageIds } from "./message-sid.js";
 import { writeQrDataUrlToTempFile } from "./qr-temp-file.js";
+import { recallZalouserQuote } from "./quote-cache.js";
 import { getZalouserRuntime } from "./runtime.js";
 import {
   normalizeZalouserTarget,
@@ -49,6 +50,7 @@ type ZalouserSendTextContext = {
   text: string;
   accountId?: string | null;
   cfg: OpenClawConfig;
+  replyToId?: string | null;
 };
 
 type ZalouserSendMediaContext = ZalouserSendTextContext & {
@@ -106,16 +108,24 @@ function resolveZalouserRequireMention(params: ChannelGroupContext): boolean {
   return true;
 }
 
-async function sendZalouserTextFromContext({ to, text, accountId, cfg }: ZalouserSendTextContext) {
+async function sendZalouserTextFromContext({
+  to,
+  text,
+  accountId,
+  cfg,
+  replyToId,
+}: ZalouserSendTextContext) {
   const { sendMessageZalouser } = await loadZalouserChannelRuntime();
   const account = resolveZalouserAccountSync({ cfg: cfg, accountId });
   const target = parseZalouserOutboundTarget(to);
+  const quote = recallZalouserQuote(replyToId);
   return await sendMessageZalouser(target.threadId, text, {
     profile: account.profile,
     isGroup: target.isGroup,
     textMode: "markdown",
     textChunkMode: resolveZalouserOutboundChunkMode(cfg, account.accountId),
     textChunkLimit: resolveZalouserOutboundTextChunkLimit(cfg, account.accountId),
+    quote,
   });
 }
 
@@ -372,7 +382,8 @@ export const zalouserSecurityAdapter = {
 };
 
 export const zalouserThreadingAdapter = {
-  resolveReplyToMode: createStaticReplyToModeResolver("off"),
+  // Quote once per turn (the first chunk); quoting every chunk would be noisy.
+  resolveReplyToMode: createStaticReplyToModeResolver("first"),
 };
 
 export const zalouserPairingTextAdapter = {

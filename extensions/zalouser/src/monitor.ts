@@ -36,6 +36,7 @@ import {
   isZalouserGroupEntryAllowed,
 } from "./group-policy.js";
 import { formatZalouserMessageSidFull, resolveZalouserMessageSid } from "./message-sid.js";
+import { rememberZalouserQuote } from "./quote-cache.js";
 import { getZalouserRuntime } from "./runtime.js";
 import {
   sendDeliveredZalouser,
@@ -620,6 +621,22 @@ async function processMessage(
     msgId: message.msgId,
     cliMsgId: message.cliMsgId,
   });
+
+  // Cache the inbound quote fields so a later native reply can quote this message.
+  if (message.msgId && message.cliMsgId) {
+    try {
+      rememberZalouserQuote({
+        msgId: message.msgId,
+        cliMsgId: message.cliMsgId,
+        uidFrom: message.eventMessage?.uidFrom || senderId,
+        content: rawBody,
+        msgType: message.eventMessage?.msgType || "webchat",
+        ts: message.eventMessage?.ts ?? message.timestampMs,
+      });
+    } catch (err) {
+      logVerbose(core, runtime, `zalouser: quote cache failed for ${chatId}: ${String(err)}`);
+    }
+  }
 
   const ctxPayload = core.channel.turn.buildContext({
     channel: "zalouser",

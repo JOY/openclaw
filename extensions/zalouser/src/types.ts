@@ -1,4 +1,5 @@
 import type { MessageReceipt } from "openclaw/plugin-sdk/channel-message";
+import type { ZalouserQuoteEntry } from "./quote-cache.js";
 import type { Style } from "./zca-constants.js";
 
 export type ZcaFriend = {
@@ -67,6 +68,7 @@ export type ZaloSendOptions = {
   textChunkMode?: "length" | "newline";
   textChunkLimit?: number;
   textStyles?: Style[];
+  quote?: ZalouserQuoteEntry;
 };
 
 export type ZaloSendResult = {
