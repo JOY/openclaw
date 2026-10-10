@@ -27,6 +27,7 @@ vi.mock("./zca-client.js", () => ({
 import {
   checkZaloAuthenticated,
   listZaloFriends,
+  resetSessionKeepAliveForTests,
   sendZaloLink,
   sendZaloReaction,
   startZaloQrLogin,
@@ -462,4 +463,71 @@ describe("zalouser credential persistence", () => {
       }
     },
   );
+});
+
+describe("zalouser session keep-alive", () => {
+  beforeEach(() => {
+    createZaloMock.mockReset();
+  });
+
+  // A listener-only session can rotate its cookie jar without any outbound
+  // operation; the keep-alive heartbeat must persist the rotation so a
+  // restart restores the current cookies, not the pre-rotation ones.
+  it("re-persists rotated cookies on the keep-alive interval", async () => {
+    vi.useFakeTimers();
+    // Earlier tests in this file already started the keep-alive under real
+    // timers; re-register it under the fake regime so advancing time fires it.
+    resetSessionKeepAliveForTests();
+    try {
+      const stateDir = await mkdtemp(path.join(os.tmpdir(), "openclaw-zalouser-keepalive-"));
+      const profile = "keepalive";
+      const storedCookie = [{ key: "zpsid", value: "stored", domain: "chat.zalo.me" }];
+      const rotatedCookie = [{ key: "zpsid", value: "rotated", domain: "chat.zalo.me" }];
+      const filePath = credentialPath(stateDir, profile);
+      await mkdir(path.dirname(filePath), { recursive: true });
+      await writeFile(
+        filePath,
+        JSON.stringify(
+          {
+            imei: "stored-imei",
+            cookie: storedCookie,
+            userAgent: "stored-user-agent",
+            createdAt: "2026-04-01T00:00:00.000Z",
+          },
+          null,
+          2,
+        ),
+      );
+
+      let currentCookie = storedCookie;
+      const api = createMockApi({
+        imei: "stored-imei",
+        userAgent: "stored-user-agent",
+        language: "vi",
+        cookies: () => currentCookie,
+      });
+      const login = vi.fn(async () => api);
+      createZaloMock.mockResolvedValueOnce({ login });
+
+      try {
+        await withEnvAsync({ OPENCLAW_STATE_DIR: stateDir }, async () => {
+          await listZaloFriends(profile);
+          const before = await readStoredCredentials(stateDir, profile);
+          expect(before.cookie).toEqual(storedCookie);
+
+          // The live session rotates its jar with no outbound traffic.
+          currentCookie = rotatedCookie;
+          await vi.advanceTimersByTimeAsync(10 * 60_000);
+
+          const after = await readStoredCredentials(stateDir, profile);
+          expect(after.cookie).toEqual(rotatedCookie);
+          expect(after.lastUsedAt).toMatch(ISO_TIMESTAMP_RE);
+        });
+      } finally {
+        await rm(stateDir, { recursive: true, force: true });
+      }
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
