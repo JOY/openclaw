@@ -700,7 +700,9 @@ function persistApiCredentialsIfChanged(profile: string, api: API): void {
 const SESSION_KEEPALIVE_INTERVAL_MS = 10 * 60_000;
 let sessionKeepAliveTimer: ReturnType<typeof setInterval> | null = null;
 function startSessionKeepAlive(): void {
-  if (sessionKeepAliveTimer) return;
+  if (sessionKeepAliveTimer) {
+    return;
+  }
   sessionKeepAliveTimer = setInterval(() => {
     for (const [profile, api] of apiByProfile) {
       persistApiCredentialsIfChanged(profile, api);
