@@ -690,6 +690,46 @@ function persistApiCredentialsIfChanged(profile: string, api: API): void {
   }
 }
 
+// A mostly-idle session whose traffic is listener-only can rotate its cookie
+// jar without any outbound operation (withZaloApi persists after operations
+// only), and a process restart would then restore the pre-rotation file. The
+// heartbeat re-snapshots every cached session on a timer so the on-disk
+// credentials stay the freshest known truth. unref() keeps the timer from
+// holding the process open, and the module-level guard makes repeated plugin
+// loads in one process a no-op.
+const SESSION_KEEPALIVE_INTERVAL_MS = 10 * 60_000;
+let sessionKeepAliveTimer: ReturnType<typeof setInterval> | null = null;
+function startSessionKeepAlive(): void {
+  if (sessionKeepAliveTimer) {
+    return;
+  }
+  sessionKeepAliveTimer = setInterval(() => {
+    for (const [profile, api] of apiByProfile) {
+      persistApiCredentialsIfChanged(profile, api);
+    }
+  }, SESSION_KEEPALIVE_INTERVAL_MS);
+  try {
+    sessionKeepAliveTimer.unref();
+  } catch {
+    // Timers without unref (non-Node runtimes) simply keep the default behavior.
+  }
+}
+
+/** Test hook: forget the running keep-alive timer (clearing it) so the next
+ *  session start registers a fresh one under the current timer regime -
+ *  required when a test suite swaps real timers for fake ones after this
+ *  module has already started the interval. */
+export function resetSessionKeepAliveForTests(): void {
+  if (sessionKeepAliveTimer) {
+    try {
+      clearInterval(sessionKeepAliveTimer);
+    } catch {
+      // ignore
+    }
+  }
+  sessionKeepAliveTimer = null;
+}
+
 function clearCredentials(profile: string): boolean {
   const filePath = resolveCredentialsPath(profile);
   try {
@@ -740,6 +780,7 @@ async function ensureApi(
     );
     apiByProfile.set(profile, api);
     writeApiCredentials(profile, api, stored);
+    startSessionKeepAlive();
     return api;
   })();
 
@@ -1570,6 +1611,7 @@ export async function startZaloQrLogin(params: {
         writeApiCredentials(profile, api, capturedCredentials ?? undefined);
         invalidateApi(profile);
         apiByProfile.set(profile, api);
+        startSessionKeepAlive();
         current.connected = true;
       } catch (error) {
         const current = activeQrLogins.get(profile);
